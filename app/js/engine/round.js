@@ -26,6 +26,7 @@ export class Round {
     this.config = { count: 20, seconds: 120, retryMissed: false, ...config };
     if (hasFixed) {
       // A fixed list of problems (e.g. "practice missed"): asked in order, once each.
+      this.config.fixed = config.fixed.slice();
       this.config.mode = 'count';
       this.config.count = config.fixed.length;
       this.config.skills = [];
@@ -131,6 +132,26 @@ export class Round {
     }
     this.current = null;
     return { ...record, expected: formatAnswer(problem) };
+  }
+
+  /**
+   * Set the current problem aside without recording an answer, so the next
+   * advance() shows a different one (used after a pause, so a paused question
+   * can't be worked out while the clock is stopped). Problems that still need
+   * practice go back in their queue instead of being dropped.
+   */
+  skip() {
+    const p = this.current;
+    if (!p || this.finished) return;
+    this.current = null;
+    if (p._retry) {
+      this.retryQueue.push(p);
+    } else if (p._repeat) {
+      this.requeue.push({ problem: p, dueAt: this.answers.length + REQUEUE_GAP - 1 });
+    } else if (this.config.fixed) {
+      const fixed = this.config.fixed;
+      fixed.push(...fixed.splice(this.scored.length, 1));
+    }
   }
 
   canSubmit(given) {

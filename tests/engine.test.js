@@ -251,3 +251,103 @@ test('every built-in preset runs a full round', async () => {
     assert.equal(r.summary().accuracy, 1, preset.name);
   }
 });
+
+test('skip sets the current question aside without recording it', () => {
+  const now = fakeClock();
+  const r = new Round(timesConfig('count', { count: 5 }), { rng: createRng(8), now });
+  let p = r.start();
+  const skipped = p.text;
+  r.pause();
+  now.tick(30000);
+  r.resume();
+  r.skip();
+  p = r.advance();
+  assert.notEqual(p.text, skipped, 'a different question after skipping');
+  assert.equal(r.answers.length, 0, 'nothing recorded for the skipped question');
+  now.tick(2000);
+  assert.equal(r.submit(right(p)).ms, 2000, 'the new question is timed from when it appears');
+  let n = 1;
+  while ((p = r.advance())) {
+    r.submit(right(p));
+    n++;
+  }
+  assert.equal(n, 5, 'the round still has its full number of questions');
+  assert.equal(r.summary().total, 5);
+});
+
+test('skip in a timed round keeps the clock stopped while paused', () => {
+  const now = fakeClock();
+  const r = new Round(timesConfig('timed', { seconds: 60 }), { rng: createRng(9), now });
+  r.start();
+  now.tick(5000);
+  r.pause();
+  now.tick(120000);
+  r.resume();
+  r.skip();
+  assert.ok(r.advance());
+  assert.equal(r.remainingMs(), 55000);
+});
+
+test('a skipped retry comes back later instead of being lost', () => {
+  const now = fakeClock();
+  const r = new Round(timesConfig('count', { count: 3, retryMissed: true }), { rng: createRng(10), now });
+  let p = r.start();
+  r.submit(wrong());
+  const missedA = p.text;
+  p = r.advance();
+  r.submit(wrong());
+  const missedB = p.text;
+  p = r.advance();
+  r.submit(right(p));
+  p = r.advance();
+  assert.equal(p.text, missedA, 'retry phase starts with the first miss');
+  r.skip();
+  p = r.advance();
+  assert.equal(p.text, missedB, 'the other retry comes next');
+  r.submit(right(p));
+  p = r.advance();
+  assert.equal(p.text, missedA, 'the skipped retry is asked again');
+  r.submit(right(p));
+  assert.equal(r.advance(), null);
+});
+
+test('a skipped mastery repeat goes back in the queue', () => {
+  const now = fakeClock();
+  const r = new Round(timesConfig('mastery', { count: 6 }), { rng: createRng(11), now });
+  let p = r.start();
+  const missed = p.text;
+  r.submit(wrong());
+  let skippedOnce = false;
+  let fixedLater = false;
+  while ((p = r.advance())) {
+    if (p.text === missed && !skippedOnce) {
+      skippedOnce = true;
+      r.skip();
+      continue;
+    }
+    if (p.text === missed) fixedLater = true;
+    r.submit(right(p));
+  }
+  assert.ok(skippedOnce && fixedLater, 'the missed problem was asked again after being skipped');
+});
+
+test('a skipped fixed problem moves to the end; every problem is still asked once', () => {
+  const now = fakeClock();
+  const seed = new Round(timesConfig('count', { count: 3 }), { rng: createRng(12), now });
+  const problems = [seed.start()];
+  seed.submit(wrong());
+  problems.push(seed.advance());
+  seed.submit(wrong());
+  problems.push(seed.advance());
+  const original = problems.map((x) => x.text);
+  const r = new Round({ fixed: problems }, { rng: createRng(13), now });
+  const asked = [];
+  let p = r.start();
+  r.skip();
+  while ((p = r.advance())) {
+    asked.push(p.text);
+    r.submit(right(p));
+  }
+  assert.deepEqual(asked, [original[1], original[2], original[0]]);
+  assert.deepEqual(problems.map((x) => x.text), original, "the caller's list is not modified");
+});

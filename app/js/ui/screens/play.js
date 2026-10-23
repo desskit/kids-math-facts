@@ -52,6 +52,8 @@ export async function renderPlay(main) {
   const counter = h('span');
   const timer = h('span.timer', { 'aria-hidden': 'true' });
   const quitBtn = h('button.btn', { type: 'button', onclick: quit }, '✕ Quit');
+  const pauseBtn = h('button.btn', { type: 'button', onclick: () => pause(), 'aria-label': 'Pause' }, '⏸️ Pause');
+  const resumeBtn = h('button.btn.primary.big', { type: 'button', onclick: () => resume() }, 'Keep going ▶');
   const problemBox = h('div');
   const answerBox = h('div');
   const feedback = h('div.feedback', { 'aria-live': 'polite' });
@@ -60,14 +62,14 @@ export async function renderPlay(main) {
   const overlay = h('div.paused-overlay', { hidden: true },
     h('div.card.center',
       h('h2', 'Paused'),
-      h('p.secondary', 'The clock is stopped.'),
-      h('button.btn.primary.big', { type: 'button', onclick: () => resume() }, 'Keep going ▶'),
+      h('p.secondary', 'The clock is stopped. You’ll get a new question when you come back.'),
+      resumeBtn,
     ),
   );
 
   main.append(
     h('div.play',
-      h('div.play-top', quitBtn, h('div.progress', { role: 'progressbar', 'aria-label': 'Progress' }, progressBar)),
+      h('div.play-top', quitBtn, h('div.progress', { role: 'progressbar', 'aria-label': 'Progress' }, progressBar), pauseBtn),
       h('div.play-status', counter, h('span', lengthLabel(round.config)), timer),
       area,
       keypadBox,
@@ -213,6 +215,7 @@ export async function renderPlay(main) {
   async function quit() {
     if (state === 'done') return;
     round.pause();
+    clearTimeout(feedbackTimer);
     const answered = round.answers.length;
     const ok = await confirmDialog(
       'Stop this round?',
@@ -221,7 +224,9 @@ export async function renderPlay(main) {
       { danger: true },
     );
     if (!ok) {
+      // The clock was stopped while the dialog was open, so move on to a new question.
       round.resume();
+      newQuestion();
       return;
     }
     if (!answered) {
@@ -237,13 +242,27 @@ export async function renderPlay(main) {
   function pause() {
     if (state === 'done' || round.paused) return;
     round.pause();
+    clearTimeout(feedbackTimer);
     overlay.hidden = false;
+    resumeBtn.focus();
   }
 
   function resume() {
+    if (overlay.hidden || state === 'done') return;
     overlay.hidden = true;
     round.resume();
-    updateStatus();
+    newQuestion();
+  }
+
+  /** Replace whatever is on screen with a new question (after a pause). */
+  function newQuestion() {
+    if (state === 'done') return;
+    clearTimeout(feedbackTimer);
+    // An unanswered question is set aside unrecorded; an answered one is already saved.
+    if (state === 'question') round.skip();
+    const p = round.advance();
+    if (!p) return finish();
+    show(p);
   }
 
   function onVisibility() {
@@ -251,12 +270,18 @@ export async function renderPlay(main) {
   }
 
   function onKeyDown(e) {
-    if (state === 'feedback' && (e.key === 'Enter' || e.key === ' ')) {
+    if (document.querySelector('dialog[open]')) return;
+    if (!overlay.hidden) {
+      // While paused, only resuming does anything; typing must not reach the hidden question.
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') resume();
+      if (!e.metaKey && !e.ctrlKey && !e.altKey) e.preventDefault();
+      e.stopPropagation();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      pause();
+    } else if (state === 'feedback' && (e.key === 'Enter' || e.key === ' ')) {
       e.preventDefault();
       next();
-    } else if (!overlay.hidden && (e.key === 'Enter' || e.key === ' ')) {
-      e.preventDefault();
-      resume();
     }
   }
 

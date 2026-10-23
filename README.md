@@ -17,6 +17,8 @@ An installable, offline math practice app for elementary students, hosted on Git
 
 Built-in presets cover grades 1–5. Use **Build** to make your own and save it for one-tap practice.
 
+**Pausing:** tap **Pause** (or press Esc) during a round. The clock stops and the question is hidden. When play resumes, a new question appears, and the one that was showing isn't counted. The app also pauses on its own when it goes to the background.
+
 ## Stats
 
 Every answer is recorded: the problem, the answer given, whether it was right, and how long it took. The **Stats** tab shows:
