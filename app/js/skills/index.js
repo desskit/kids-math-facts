@@ -9,7 +9,7 @@ import facts from './facts.js';
 import multidigit from './multidigit.js';
 import fractions from './fractions.js';
 import decimals from './decimals.js';
-import { displayText } from './common.js';
+import { displayText, withDefaults } from './common.js';
 
 export const CATEGORIES = [
   { id: 'facts', label: 'Math facts' },
@@ -24,6 +24,11 @@ const byId = new Map(SKILLS.map((s) => [s.id, s]));
 
 export function getSkill(id) {
   return byId.get(id);
+}
+
+/** A skill's options with defaults filled in, upgrading settings saved by older versions. */
+export function skillOptions(skill, options = {}) {
+  return withDefaults(skill.options, skill.upgrade ? skill.upgrade(options || {}) : options || {});
 }
 
 /** Generate a problem and tag it with the skill id and a plain-text form. */

@@ -1,6 +1,7 @@
 // Human-readable descriptions of round configurations.
 
 import { getSkill } from '../skills/index.js';
+import { totalQuestions } from '../engine/config.js';
 
 export const MODE_LABELS = {
   count: 'Question set',
@@ -14,8 +15,9 @@ export function lengthLabel(config) {
     const m = config.seconds / 60;
     return m >= 1 && Number.isInteger(m) ? `${m}-minute sprint` : `${config.seconds}-second sprint`;
   }
-  if (config.mode === 'mastery') return `Mastery · ${config.count} questions`;
-  return `${config.count} questions`;
+  const n = totalQuestions(config);
+  const questions = `${n} question${n === 1 ? '' : 's'}`;
+  return config.mode === 'mastery' ? `Mastery · ${questions}` : questions;
 }
 
 export function skillsLabel(config) {

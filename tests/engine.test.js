@@ -18,6 +18,7 @@ const right = (p) => {
       return { q: String(p.answer.q), r: String(p.answer.r) };
     case 'fraction': {
       const { n, d } = p.answer;
+      if (d === 1) return { w: String(n) };
       if (p.form === 'mixed' && n > d) {
         const w = Math.floor(n / d);
         return n % d ? { w: String(w), n: String(n % d), d: String(d) } : { w: String(w) };
@@ -350,4 +351,89 @@ test('a skipped fixed problem moves to the end; every problem is still asked onc
   }
   assert.deepEqual(asked, [original[1], original[2], original[0]]);
   assert.deepEqual(problems.map((x) => x.text), original, "the caller's list is not modified");
+});
+
+test('per-kind counts: each kind appears exactly its count, mixed together', async () => {
+  const { skillCounts, totalQuestions, normalizeConfig } = await import('../app/js/engine/config.js');
+  const config = {
+    mode: 'count',
+    skills: [
+      { id: 'mul-facts', options: {}, count: 7 },
+      { id: 'div-facts', options: {}, count: 3 },
+      { id: 'frac-compare', options: {}, count: 2 },
+    ],
+  };
+  assert.deepEqual(skillCounts(config), [7, 3, 2]);
+  assert.equal(totalQuestions(config), 12);
+  assert.equal(normalizeConfig(config).count, 12);
+  for (let seed = 0; seed < 20; seed++) {
+    const now = fakeClock();
+    const r = new Round(config, { rng: createRng(seed), now });
+    const kinds = [];
+    let p = r.start();
+    while (p) {
+      kinds.push(p.skillId);
+      r.submit(right(p));
+      p = r.advance();
+    }
+    const tally = (id) => kinds.filter((k) => k === id).length;
+    assert.equal(kinds.length, 12);
+    assert.deepEqual([tally('mul-facts'), tally('div-facts'), tally('frac-compare')], [7, 3, 2]);
+    if (seed === 0) assert.notDeepEqual(kinds, [...kinds].sort(), 'kinds are shuffled, not grouped');
+  }
+});
+
+test('configs without per-kind counts split the total evenly', async () => {
+  const { skillCounts, normalizeConfig } = await import('../app/js/engine/config.js');
+  const legacy = { mode: 'count', count: 10, skills: [{ id: 'add-facts' }, { id: 'sub-facts' }, { id: 'mul-facts' }, { id: 'div-facts' }] };
+  assert.deepEqual(skillCounts(legacy), [3, 3, 2, 2]);
+  assert.equal(normalizeConfig(legacy).count, 10);
+  assert.deepEqual(skillCounts({ mode: 'count', count: 20, skills: [{ id: 'add-facts' }] }), [20]);
+  // A kind added without a count next to kinds that have one gets the default.
+  assert.deepEqual(skillCounts({ skills: [{ id: 'a', count: 4 }, { id: 'b' }] }), [4, 10]);
+  // Silly values are kept in bounds.
+  assert.deepEqual(skillCounts({ skills: [{ id: 'a', count: 5000 }, { id: 'b', count: -2 }] }), [200, 10]);
+});
+
+test('timed sprints use the per-kind numbers as the mix', () => {
+  const now = fakeClock();
+  const config = {
+    mode: 'timed',
+    seconds: 600,
+    skills: [
+      { id: 'mul-facts', options: {}, count: 3 },
+      { id: 'div-facts', options: {}, count: 1 },
+    ],
+  };
+  const r = new Round(config, { rng: createRng(21), now });
+  let p = r.start();
+  let mul = 0;
+  for (let i = 0; i < 800; i++) {
+    if (p.skillId === 'mul-facts') mul++;
+    now.tick(100);
+    r.submit(right(p));
+    p = r.advance();
+  }
+  assert.ok(mul > 540 && mul < 660, `about 75% multiplication, got ${mul}/800`);
+});
+
+test('mastery rounds keep each kind to its count', () => {
+  const now = fakeClock();
+  const config = {
+    mode: 'mastery',
+    skills: [
+      { id: 'mul-facts', options: { tables: [6, 7] }, count: 5 },
+      { id: 'add-facts', options: {}, count: 2 },
+    ],
+  };
+  const r = new Round(config, { rng: createRng(22), now });
+  const kinds = [];
+  let p = r.start();
+  while (p) {
+    kinds.push(p.skillId);
+    r.submit(right(p));
+    p = r.advance();
+  }
+  assert.equal(kinds.filter((k) => k === 'mul-facts').length, 5);
+  assert.equal(kinds.filter((k) => k === 'add-facts').length, 2);
 });

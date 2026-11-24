@@ -362,6 +362,11 @@ main {
   background: transparent;
   border-color: transparent;
 }
+.btn.small {
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: 0.9rem;
+}
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
@@ -370,6 +375,7 @@ main {
 
 .pill {
   display: inline-block;
+  white-space: nowrap;
   padding: 2px 10px;
   border-radius: 999px;
   background: var(--surface-2);
@@ -555,7 +561,8 @@ main {
   margin-bottom: 14px;
 }
 .field > label,
-.field > .label {
+.field > .label,
+.field > .row > .label {
   font-weight: 700;
   font-size: 0.95rem;
 }
@@ -626,6 +633,73 @@ input[type='number'] {
 }
 .skill-options .field {
   margin: 12px 0 0;
+}
+
+/* how many of each kind */
+.stepper {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-1);
+}
+.stepper .btn {
+  border: 0;
+  border-radius: 0;
+  min-width: 48px;
+  font-size: 1.3rem;
+  padding: 0 12px;
+}
+.stepper input {
+  width: 4.2em;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  text-align: center;
+  font-weight: 800;
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+.stepper input::-webkit-outer-spin-button,
+.stepper input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.range-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.range-inputs input {
+  width: 5em;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.total-line {
+  font-size: 1.1rem;
+  margin-bottom: 2px;
+}
+.start-btn {
+  flex-direction: column;
+  gap: 0;
+  line-height: 1.15;
+}
+.start-total {
+  font-size: 0.78rem;
+  font-weight: 600;
+  opacity: 0.9;
+}
+.start-total:empty {
+  display: none;
 }
 
 .sticky-actions {

@@ -2,7 +2,7 @@
 
 An installable, offline math practice app for elementary students, hosted on GitHub Pages.
 
-- **Math facts:** + − × ÷ with configurable ranges (e.g. pick which times tables).
+- **Math facts:** + − × ÷ with your own number ranges (e.g. times tables 0–20, multiplied by 2–9 only; adding numbers up to 100), asked as `7 × 8 = ?`, as a missing number (`7 × ? = 56`), or both.
 - **Multi-digit:** addition and subtraction with or without regrouping, multiplication up to 3×2 digits, long division with or without remainders.
 - **Fractions:** equivalent fractions, simplifying, comparing, mixed numbers, adding/subtracting with like or unlike denominators, multiplying, fractions ↔ decimals.
 - **Decimals:** comparing, adding/subtracting, multiplying, dividing.
@@ -11,11 +11,13 @@ An installable, offline math practice app for elementary students, hosted on Git
 
 | Type | What it does |
 |---|---|
-| Question set | A set number of questions. Every answer is timed. Missed problems can repeat at the end. |
+| Question set | Questions of each kind, mixed together. Every answer is timed. Missed problems can repeat at the end. |
 | Timed sprint | Answer as many as possible in 30 seconds to 5 minutes. |
 | Mastery | Picks what needs practice most (new, missed, and slow facts) and brings missed problems back a few questions later until they're right. |
 
-Built-in presets cover grades 1–5. Use **Build** to make your own and save it for one-tap practice.
+Built-in presets cover grades 1–5. Use **Build** (or ✏️ on any preset) to make your own and save it for one-tap practice.
+
+**How many of each:** every kind of problem in a round has its own question count, for example 15 multiplication + 10 division + 5 fractions, and the round's total is their sum. In a timed sprint the same numbers set the mix instead (15 × and 5 ÷ means about three of every four questions are multiplication).
 
 **Pausing:** tap **Pause** (or press Esc) during a round. The clock stops and the question is hidden. When play resumes, a new question appears, and the one that was showing isn't counted. The app also pauses on its own when it goes to the background.
 

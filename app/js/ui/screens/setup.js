@@ -2,11 +2,11 @@ import { h, clear, dialog, toast } from '../dom.js';
 import { startRound } from '../../app.js';
 import { listPresets, savePreset, newId } from '../../data/store.js';
 import { BUILT_IN_PRESETS } from '../../engine/presets.js';
-import { SKILLS, CATEGORIES } from '../../skills/index.js';
-import { withDefaults } from '../../skills/common.js';
+import { skillCounts, DEFAULT_SKILL_COUNT, MAX_SKILL_COUNT } from '../../engine/config.js';
+import { SKILLS, CATEGORIES, skillOptions } from '../../skills/index.js';
+import { cleanRange } from '../../skills/common.js';
 import { navigate } from '../../router.js';
 
-const COUNTS = [5, 10, 15, 20, 25, 30, 40, 50];
 const SECONDS = [30, 60, 120, 180, 300];
 
 export async function renderSetup(main, _params, query) {
@@ -17,27 +17,37 @@ export async function renderSetup(main, _params, query) {
   const editing = fromPreset && !fromPreset.id.startsWith('bi-') ? fromPreset : null;
 
   // Editable state
-  const base = fromPreset?.config || { mode: 'count', count: 20, seconds: 120, retryMissed: true, skills: [{ id: 'mul-facts', options: {} }] };
+  const base = fromPreset?.config || {
+    mode: 'count',
+    seconds: 120,
+    retryMissed: true,
+    skills: [{ id: 'mul-facts', options: {}, count: 20 }],
+  };
   const state = {
     mode: base.mode,
-    count: base.count || 20,
     seconds: base.seconds || 120,
     retryMissed: base.retryMissed ?? true,
-    skills: Object.fromEntries(SKILLS.map((s) => [s.id, { on: false, options: withDefaults(s.options, {}) }])),
+    skills: Object.fromEntries(
+      SKILLS.map((s) => [s.id, { on: false, options: skillOptions(s), count: DEFAULT_SKILL_COUNT }]),
+    ),
   };
-  for (const s of base.skills || []) {
-    if (state.skills[s.id]) state.skills[s.id] = { on: true, options: withDefaults(SKILLS.find((x) => x.id === s.id).options, s.options) };
-  }
+  const baseCounts = skillCounts(base);
+  (base.skills || []).forEach((s, i) => {
+    const skill = SKILLS.find((x) => x.id === s.id);
+    if (skill) state.skills[s.id] = { on: true, options: skillOptions(skill, s.options), count: baseCounts[i] };
+  });
+
+  const chosen = () => Object.entries(state.skills).filter(([, v]) => v.on);
+  const total = () => chosen().reduce((sum, [, v]) => sum + v.count, 0);
 
   function config() {
+    const skills = chosen().map(([id, v]) => ({ id, options: structuredClone(v.options), count: v.count }));
     return {
       mode: state.mode,
-      count: state.count,
+      count: skills.reduce((sum, s) => sum + s.count, 0),
       seconds: state.seconds,
       retryMissed: state.mode === 'count' ? state.retryMissed : false,
-      skills: Object.entries(state.skills)
-        .filter(([, v]) => v.on)
-        .map(([id, v]) => ({ id, options: structuredClone(v.options) })),
+      skills,
     };
   }
 
@@ -57,7 +67,7 @@ export async function renderSetup(main, _params, query) {
 
   const title = editing ? `Edit “${editing.name}”` : fromPreset ? `Customize “${fromPreset.name}”` : 'Build a practice round';
 
-  // ---- mode
+  // ---- mode and length
   const modeCard = (value, label, desc) =>
     h('label.choice-card',
       h('input', {
@@ -68,12 +78,14 @@ export async function renderSetup(main, _params, query) {
         onchange: () => {
           state.mode = value;
           renderLength();
+          refresh();
         },
       }),
       h('strong', label),
       h('span', desc),
     );
 
+  const summary = h('div.round-summary', { 'aria-live': 'polite' });
   const lengthBox = h('div');
   function renderLength() {
     clear(lengthBox);
@@ -83,13 +95,8 @@ export async function renderSetup(main, _params, query) {
           h('div.chips', SECONDS.map((s) => radioChip('seconds', s, s < 60 ? `${s} sec` : `${s / 60} min`, state.seconds === s, () => (state.seconds = s)))),
         ),
       );
-    } else {
-      lengthBox.append(
-        h('div.field', h('span.label', 'How many questions?'),
-          h('div.chips', COUNTS.map((n) => radioChip('count', n, String(n), state.count === n, () => (state.count = n)))),
-        ),
-      );
     }
+    lengthBox.append(summary);
     if (state.mode === 'count') {
       lengthBox.append(
         h('label.switch',
@@ -102,7 +109,76 @@ export async function renderSetup(main, _params, query) {
       lengthBox.append(h('p.small.secondary', 'Mastery picks the facts that need the most practice, and brings back missed problems a few questions later until they’re right.'));
     }
   }
-  renderLength();
+
+  // ---- per-kind counts: kept in sync by refresh()
+  const countWidgets = []; // { skillId, label, share }
+  const startTotal = h('span.start-total');
+
+  function refresh() {
+    const list = chosen();
+    const n = total();
+    const timed = state.mode === 'timed';
+    clear(summary);
+    if (!list.length) {
+      summary.append(h('p.small.secondary', 'Pick at least one kind of problem below.'));
+    } else if (timed) {
+      summary.append(
+        h('p.small.secondary', 'Answer as many as you can. The numbers next to each kind of problem set the mix.'),
+      );
+    } else {
+      summary.append(
+        h('p.total-line', 'Total: ', h('strong', `${n} question${n === 1 ? '' : 's'}`)),
+        h('p.small.secondary', list.length > 1
+          ? list.map(([id, v]) => `${v.count} ${SKILLS.find((s) => s.id === id).label.toLowerCase()}`).join(' · ')
+          : 'Change the number of questions under the problem below.'),
+      );
+    }
+    for (const w of countWidgets) {
+      const st = state.skills[w.skillId];
+      w.label.textContent = timed ? 'Share of the sprint' : 'Number of questions';
+      w.share.textContent = timed && st.on && n ? `about ${Math.round((st.count / n) * 100)}% of questions` : '';
+    }
+    startTotal.textContent = !list.length || timed ? '' : `${n} question${n === 1 ? '' : 's'}`;
+  }
+
+  function countField(skill) {
+    const st = state.skills[skill.id];
+    const label = h('span.label');
+    const share = h('span.small.secondary');
+    const input = h('input', {
+      type: 'number',
+      inputmode: 'numeric',
+      min: '1',
+      max: String(MAX_SKILL_COUNT),
+      value: String(st.count),
+      'aria-label': `Number of ${skill.label.toLowerCase()} questions`,
+      oninput: (e) => {
+        const v = Number(e.target.value);
+        if (Number.isInteger(v) && v >= 1 && v <= MAX_SKILL_COUNT) {
+          st.count = v;
+          refresh();
+        }
+      },
+      onchange: () => set(Number(input.value)),
+    });
+    const set = (v) => {
+      st.count = Math.min(MAX_SKILL_COUNT, Math.max(1, Math.round(Number.isFinite(v) ? v : st.count)));
+      input.value = String(st.count);
+      refresh();
+    };
+    countWidgets.push({ skillId: skill.id, label, share });
+    return h('div.field.count-field',
+      label,
+      h('div.row',
+        h('div.stepper',
+          h('button.btn', { type: 'button', 'aria-label': 'One fewer', onclick: () => set(st.count - 1) }, '−'),
+          input,
+          h('button.btn', { type: 'button', 'aria-label': 'One more', onclick: () => set(st.count + 1) }, '+'),
+        ),
+        share,
+      ),
+    );
+  }
 
   // ---- skills
   const skillSections = CATEGORIES.map((cat) =>
@@ -114,7 +190,10 @@ export async function renderSetup(main, _params, query) {
 
   function skillItem(skill) {
     const st = state.skills[skill.id];
-    const optsBox = h('div.skill-options', { hidden: !st.on }, skill.options.map((f) => optionField(skill, f)));
+    const optsBox = h('div.skill-options', { hidden: !st.on },
+      countField(skill),
+      skill.options.map((f) => optionField(skill, f)),
+    );
     const item = h(`div.skill-item${st.on ? '.on' : ''}`,
       h('label.skill-head',
         h('input', {
@@ -124,6 +203,7 @@ export async function renderSetup(main, _params, query) {
             st.on = e.target.checked;
             optsBox.hidden = !st.on;
             item.classList.toggle('on', st.on);
+            refresh();
           },
         }),
         h('span.title', skill.label),
@@ -149,6 +229,33 @@ export async function renderSetup(main, _params, query) {
       return h('div.field',
         h('span.label', f.label),
         h('div.chips', f.options.map((o) => radioChip(name, o.value, o.label, opts[f.key] === o.value, () => (opts[f.key] = o.value)))),
+      );
+    }
+    if (f.type === 'range') {
+      const numberInput = (i, which) =>
+        h('input', {
+          type: 'number',
+          inputmode: 'numeric',
+          min: String(f.min),
+          max: String(f.max),
+          value: String(opts[f.key][i]),
+          'aria-label': `${f.label} ${which}`,
+          onchange: (e) => {
+            const next = opts[f.key].slice();
+            const v = Number(e.target.value);
+            if (e.target.value.trim() !== '' && Number.isFinite(v)) next[i] = v;
+            // The box just edited wins: raising "from" past "to" moves "to" up with it.
+            if (next[0] > next[1]) next[1 - i] = next[i];
+            opts[f.key] = cleanRange(next, f);
+            lo.value = String(opts[f.key][0]);
+            hi.value = String(opts[f.key][1]);
+          },
+        });
+      const lo = numberInput(0, 'from');
+      const hi = numberInput(1, 'to');
+      return h('div.field',
+        h('span.label', f.label),
+        h('div.range-inputs', h('span', 'from'), lo, h('span', 'to'), hi, h('span.small.muted', `(${f.min}–${f.max})`)),
       );
     }
     if (f.type === 'multi') {
@@ -215,6 +322,7 @@ export async function renderSetup(main, _params, query) {
     navigate('/');
   }
 
+  renderLength();
   main.append(
     h('h1', title),
     h('section.card',
@@ -227,12 +335,17 @@ export async function renderSetup(main, _params, query) {
       h('div', { style: { height: '14px' } }),
       lengthBox,
     ),
-    h('section.card', h('h2', 'Problems'), h('p.small.secondary', 'Choose one or more. Tap a kind of problem to change its settings.'), skillSections),
+    h('section.card',
+      h('h2', 'Problems'),
+      h('p.small.secondary', 'Choose one or more, then set how many of each and their settings.'),
+      skillSections,
+    ),
     h('div.sticky-actions',
       h('button.btn', { type: 'button', onclick: save }, editing ? '💾 Save changes' : '💾 Save for later'),
-      h('button.btn.primary.big', { type: 'button', onclick: start }, 'Start ▶'),
+      h('button.btn.primary.big.start-btn', { type: 'button', onclick: start }, h('span', 'Start ▶'), startTotal),
     ),
   );
+  refresh();
 }
 
 function radioChip(name, value, label, checked, onPick) {

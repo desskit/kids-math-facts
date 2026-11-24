@@ -17,6 +17,11 @@ function randomOptions(skill, rng) {
   for (const f of skill.options) {
     if (f.type === 'select') o[f.key] = rng.pick(f.options).value;
     else if (f.type === 'toggle') o[f.key] = rng.bool();
+    else if (f.type === 'range') {
+      const a = rng.int(f.min, f.max);
+      const b = rng.int(f.min, f.max);
+      o[f.key] = [Math.min(a, b), Math.max(a, b)];
+    }
     else if (f.type === 'multi') {
       const pickFrom = rng.shuffle(f.options.map((x) => x.value));
       o[f.key] = pickFrom.slice(0, rng.int(1, pickFrom.length));
@@ -90,9 +95,15 @@ function verify(p) {
     assert.ok(p.answer.r < dv, p.text);
     return;
   }
-  let v = tokenValue(left[0]);
-  for (let i = 1; i < left.length; i += 2) v = OPS[left[i].v](v, tokenValue(left[i + 1]));
-  assert.ok(equals(reduce(v), answerValue(p)), `${p.text} expected ${formatAnswer(p)}`);
+  // Put the answer in the blank (wherever it is) and check both sides agree.
+  assert.equal(t.filter((x) => x.t === 'blank').length, 1, p.text);
+  const value = (tok) => (tok.t === 'blank' ? answerValue(p) : tokenValue(tok));
+  const side = (tokens) => {
+    let v = value(tokens[0]);
+    for (let i = 1; i < tokens.length; i += 2) v = OPS[tokens[i].v](v, value(tokens[i + 1]));
+    return reduce(v);
+  };
+  assert.ok(equals(side(left), side(right)), `${p.text} expected ${formatAnswer(p)}`);
 }
 
 /** The expected answer typed in the most natural way must be accepted. */
@@ -153,22 +164,31 @@ function nums(p) {
   return p.display.tokens.filter((t) => t.t === 'num').map((t) => Number(t.v));
 }
 
+const inRange = (v, [lo, hi]) => v >= lo && v <= hi;
+
+function checkFactBlank(o, p) {
+  const tokens = p.display.tokens;
+  const atEnd = tokens[tokens.length - 1].t === 'blank';
+  if (o.blank === 'end') assert.ok(atEnd, p.text);
+  // "Missing" puts the blank on an operand, except "0 × 0" where that has no single answer.
+  if (o.blank === 'missing' && p.factKey !== 'mul:0x0') assert.ok(!atEnd, p.text);
+}
+
 function checkConstraints(id, o, p) {
+  if (getSkill(id).grid) {
+    // Facts: check the fact itself (from its key), since the blank may be anywhere.
+    const [r, c] = getSkill(id).grid.parse(p.factKey);
+    if (id === 'add-facts') assert.ok(inRange(r, o.first) && inRange(c, o.second), p.factKey);
+    if (id === 'sub-facts') assert.ok(inRange(r, o.taken) && inRange(c, o.answer), p.factKey);
+    if (id === 'mul-facts') {
+      assert.ok((o.tables.includes(r) && inRange(c, o.by)) || (o.tables.includes(c) && inRange(r, o.by)), p.factKey);
+    }
+    if (id === 'div-facts') assert.ok(r > 0 && o.divisors.includes(r) && inRange(c, o.answer), p.factKey);
+    checkFactBlank(o, p);
+    return;
+  }
   const [a, b] = nums(p);
   switch (id) {
-    case 'add-facts':
-      assert.ok(a <= o.max && b <= o.max);
-      break;
-    case 'sub-facts':
-      assert.ok(a - b >= 0 && b <= o.max && a - b <= o.max);
-      break;
-    case 'mul-facts':
-      assert.ok(o.tables.includes(a) || o.tables.includes(b));
-      assert.ok(a <= Math.max(12, o.max) && b <= Math.max(12, o.max));
-      break;
-    case 'div-facts':
-      assert.ok(b > 0 && o.divisors.includes(b) && a / b <= o.max && Number.isInteger(a / b));
-      break;
     case 'add-multi': {
       assert.equal(String(a).length, o.digitsA, p.text);
       assert.equal(String(b).length, o.digitsB, p.text);
@@ -232,4 +252,58 @@ test('fact grids map keys to cells and back', () => {
       assert.equal(skill.grid.keyAt(r, c), key, `${id} ${key}`);
     }
   }
+});
+
+test('fact ranges limit which facts are asked', () => {
+  const keys = (id, o) => getSkill(id).keys(o);
+  // Times tables 7 only, multiplied by 2–9 (both orders; 7 × 7 once).
+  assert.equal(keys('mul-facts', { tables: [7], by: [2, 9] }).length, 15);
+  // Tables beyond 12.
+  assert.ok(keys('mul-facts', { tables: [15], by: [0, 20] }).includes('mul:15x20'));
+  // Adding a range to a single number: 10–20 plus 9.
+  assert.deepEqual(keys('add-facts', { first: [10, 20], second: [9, 9] }).length, 11);
+  assert.ok(keys('add-facts', { first: [0, 100], second: [0, 100] }).includes('add:100+100'));
+  // Subtraction: take away 5–6, answers 0–3.
+  assert.deepEqual(
+    keys('sub-facts', { taken: [5, 6], answer: [0, 3] }).sort(),
+    ['sub:5-5', 'sub:6-5', 'sub:7-5', 'sub:8-5', 'sub:6-6', 'sub:7-6', 'sub:8-6', 'sub:9-6'].sort(),
+  );
+  assert.equal(keys('div-facts', { divisors: [13], answer: [1, 20] }).length, 20);
+});
+
+test('settings saved before ranges existed still work', () => {
+  const keys = (id, o) => getSkill(id).keys(o);
+  assert.equal(keys('add-facts', { max: 5 }).length, 36);
+  assert.equal(keys('sub-facts', { max: 5 }).length, 36);
+  assert.equal(keys('mul-facts', { tables: [7], max: 10 }).length, 21);
+  assert.equal(keys('div-facts', { divisors: [3], max: 10 }).length, 11);
+});
+
+test('range options are cleaned up', async () => {
+  const { cleanRange } = await import('../app/js/skills/common.js');
+  const f = { min: 0, max: 20, default: [0, 12] };
+  assert.deepEqual(cleanRange([9, 2], f), [2, 9], 'swapped into order');
+  assert.deepEqual(cleanRange([-5, 99], f), [0, 20], 'clamped');
+  assert.deepEqual(cleanRange(['3', '4'], f), [3, 4], 'strings from inputs');
+  assert.deepEqual(cleanRange('junk', f), [0, 12]);
+  assert.deepEqual(cleanRange([1, NaN], f), [0, 12]);
+});
+
+test('missing-number facts put the blank on an operand', () => {
+  const rng = createRng(31);
+  const seen = new Set();
+  for (const id of ['add-facts', 'sub-facts', 'mul-facts', 'div-facts']) {
+    for (let i = 0; i < 300; i++) {
+      const p = makeProblem(id, { blank: 'missing' }, rng);
+      if (p.factKey === 'mul:0x0') continue;
+      assert.ok(p.text.includes('?') && !p.text.endsWith('= ?'), p.text);
+      seen.add(p.text.indexOf('?') === 0 ? 'first' : 'second');
+      assert.ok(checkAnswer(p, { v: String(p.answer) }).correct, p.text);
+    }
+  }
+  assert.ok(seen.has('first') && seen.has('second'), 'both blank positions appear');
+  // "Both" mixes the usual form with missing numbers.
+  const forms = new Set();
+  for (let i = 0; i < 100; i++) forms.add(makeProblem('mul-facts', { blank: 'mix' }, rng).text.endsWith('= ?'));
+  assert.equal(forms.size, 2);
 });

@@ -98,8 +98,24 @@ export function opt(options, schema, key) {
 /** Fill in every missing option from the schema defaults. */
 export function withDefaults(schema, options = {}) {
   const out = {};
-  for (const f of schema) out[f.key] = opt(options, schema, f.key);
+  for (const f of schema) {
+    out[f.key] = opt(options, schema, f.key);
+    if (f.type === 'range') out[f.key] = cleanRange(out[f.key], f);
+  }
   return out;
+}
+
+/**
+ * A range option is [low, high]. Keep it whole numbers inside the field's
+ * min..max, low first; anything unusable falls back to the default.
+ */
+export function cleanRange(value, field) {
+  if (!Array.isArray(value) || value.length !== 2) return field.default.slice();
+  let [lo, hi] = value.map((v) => Math.round(Number(v)));
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return field.default.slice();
+  lo = Math.min(field.max, Math.max(field.min, lo));
+  hi = Math.min(field.max, Math.max(field.min, hi));
+  return lo <= hi ? [lo, hi] : [hi, lo];
 }
 
 /** Choose a key uniformly from those the skill can produce, unless one is given. */

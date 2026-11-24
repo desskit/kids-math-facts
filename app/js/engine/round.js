@@ -3,15 +3,16 @@
 //
 // config = {
 //   mode: 'count' | 'timed' | 'mastery',
-//   count: 20,             // questions (count and mastery modes)
+//   count: 20,             // total questions (count and mastery modes)
 //   seconds: 120,          // length of a timed sprint
-//   skills: [{ id, options }],
+//   skills: [{ id, options, count }],  // count: questions of this kind (see config.js)
 //   retryMissed: true,     // count mode: ask missed problems again at the end
 // }
 
 import { makeProblem, getSkill } from '../skills/index.js';
 import { checkAnswer, isComplete, formatAnswer } from './answer.js';
 import { addAttempt, pickCandidate } from './mastery.js';
+import { normalizeConfig } from './config.js';
 
 const REQUEUE_GAP = 3;
 
@@ -23,7 +24,7 @@ export class Round {
   constructor(config, { rng, now = () => Date.now(), factStats = {}, factFluencyMs = 3000 } = {}) {
     const hasFixed = Array.isArray(config.fixed) && config.fixed.length > 0;
     if (!hasFixed && (!config.skills || !config.skills.length)) throw new Error('A round needs at least one skill');
-    this.config = { count: 20, seconds: 120, retryMissed: false, ...config };
+    this.config = { count: 20, seconds: 120, retryMissed: false, ...normalizeConfig(config) };
     if (hasFixed) {
       // A fixed list of problems (e.g. "practice missed"): asked in order, once each.
       this.config.fixed = config.fixed.slice();
@@ -49,13 +50,29 @@ export class Round {
     this.questionPaused = 0;
     this.inRetryPhase = false;
 
+    // Which kind of problem each question will be: every kind appears exactly
+    // its count of times, shuffled so the kinds are mixed together.
+    if (!hasFixed && this.config.mode !== 'timed') {
+      this.schedule = rng.shuffle(this.config.skills.flatMap((s, i) => Array(s.count).fill(i)));
+    }
+
     if (this.config.mode === 'mastery') {
-      this.candidates = this.config.skills.flatMap(({ id, options }) => {
+      // Candidate facts (or problem types) for each kind, chosen by need.
+      this.candidates = this.config.skills.map(({ id, options }) => {
         const skill = getSkill(id);
         const fluencyMs = fluencyFor(skill, factFluencyMs);
         return skill.keys(options || {}).map((key) => ({ skillId: id, options, key, fluencyMs }));
       });
     }
+  }
+
+  /** The kind of problem (index into config.skills) for the next new question. */
+  nextSkillIndex() {
+    const skills = this.config.skills;
+    if (this.config.mode === 'timed') {
+      return this.rng.weighted(skills.map((_, i) => i), skills.map((s) => s.count));
+    }
+    return this.schedule[this.scored.length] ?? 0;
   }
 
   start() {
@@ -196,10 +213,10 @@ export class Round {
       if (this.scored.length >= count && this.requeue.length) {
         return this.requeue.shift().problem;
       }
-      const c = pickCandidate(this.rng, this.candidates, this.stats, this.recentKeys);
+      const c = pickCandidate(this.rng, this.candidates[this.nextSkillIndex()], this.stats, this.recentKeys);
       return this.fresh(() => makeProblem(c.skillId, c.options, this.rng, c.key));
     }
-    const { id, options } = this.rng.pick(this.config.skills);
+    const { id, options } = this.config.skills[this.nextSkillIndex()];
     return this.fresh(() => makeProblem(id, options, this.rng));
   }
 

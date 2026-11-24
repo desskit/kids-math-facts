@@ -19,6 +19,7 @@ const RANGES = [
 ];
 
 const FACT_GRIDS = ['mul-facts', 'div-facts', 'add-facts', 'sub-facts'];
+const GRID_LIMIT = 20;
 
 // Remember filters while the app is open.
 const view = { days: 30, skill: 'all', grid: null, historyShown: 25 };
@@ -132,8 +133,15 @@ export async function renderStats(main) {
       const drawGrid = () => {
         const skill = getSkill(view.grid);
         const keys = Object.keys(factStats).filter((k) => factStats[k].skillId === skill.id);
-        const size = Math.max(skill.id.startsWith('add') || skill.id.startsWith('sub') ? 10 : 12, ...keys.map((k) => Math.max(...skill.grid.parse(k))));
-        clear(gridBox).append(heatmap(skill, factStats, factFluencyMs(), size));
+        // Ranges can go up to 100, but a grid past 20 × 20 is too small to read.
+        const largest = Math.max(0, ...keys.map((k) => Math.max(...skill.grid.parse(k))));
+        const size = Math.min(GRID_LIMIT, Math.max(skill.id.startsWith('add') || skill.id.startsWith('sub') ? 10 : 12, largest));
+        clear(gridBox).append(
+          heatmap(skill, factStats, factFluencyMs(), size),
+          largest > GRID_LIMIT
+            ? h('p.small.muted', `The grid shows numbers up to ${GRID_LIMIT}. Facts with bigger numbers are in the tables below.`)
+            : null,
+        );
       };
       const tabs = h('div.segmented', { role: 'group', 'aria-label': 'Fact grid' },
         grids.map((g) =>

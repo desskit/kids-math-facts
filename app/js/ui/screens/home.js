@@ -12,10 +12,10 @@ const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
 
 // Fact families shown as mastery meters on the home screen once practiced.
 const FAMILIES = [
-  { id: 'mul-facts', label: 'Times tables 0–12', options: { tables: range(0, 12), max: 12 } },
-  { id: 'div-facts', label: 'Division facts', options: { divisors: range(1, 12), max: 12 } },
-  { id: 'add-facts', label: 'Addition facts to 20', options: { max: 10 } },
-  { id: 'sub-facts', label: 'Subtraction facts to 20', options: { max: 10 } },
+  { id: 'mul-facts', label: 'Times tables 0–12', options: { tables: range(0, 12), by: [0, 12] } },
+  { id: 'div-facts', label: 'Division facts', options: { divisors: range(1, 12), answer: [0, 12] } },
+  { id: 'add-facts', label: 'Addition facts to 20', options: { first: [0, 10], second: [0, 10] } },
+  { id: 'sub-facts', label: 'Subtraction facts to 20', options: { taken: [0, 10], answer: [0, 10] } },
 ];
 
 export async function renderHome(main) {
